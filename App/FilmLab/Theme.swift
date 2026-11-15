@@ -8,20 +8,22 @@
 import SwiftUI
 
 enum FL {
-    /// 相纸底色：略暖的米白，不是纯白 —— 纯白在 OLED 上会显得刺眼、也不像胶片
-    static let paper = Color(red: 0.957, green: 0.937, blue: 0.906)
-    /// 纸的暗部，用在卡片投影与装饰
-    static let paperDeep = Color(red: 0.910, green: 0.884, blue: 0.845)
-    /// 墨色文字（不用纯黑，纯黑在暖底上会发脏）
-    static let ink = Color(red: 0.106, green: 0.098, blue: 0.086)
-    /// 次要文字
-    static let inkSoft = Color(red: 0.106, green: 0.098, blue: 0.086).opacity(0.52)
-    /// 胶片橙：只用在关键数值、强调按钮上，一页不要超过三处
-    static let ochre = Color(red: 0.769, green: 0.388, blue: 0.137)
-    /// 卡片底：比纸再亮一点，形成层次
-    static let card = Color(red: 0.990, green: 0.982, blue: 0.964)
+    /// 编辑器底色：近黑（不是纯黑，纯黑在 OLED 上与画面边界会糊在一起）
+    static let paper = Color(red: 0.055, green: 0.055, blue: 0.063)
+    /// 比底色略亮一层，用在底栏、时间线槽
+    static let paperDeep = Color(red: 0.094, green: 0.094, blue: 0.102)
+    /// 主文字（不用纯白，纯白在大面积黑底上会跳）
+    static let ink = Color(red: 0.925, green: 0.925, blue: 0.937)
+    /// 次要文字与未选中的图标
+    static let inkSoft = Color(red: 0.925, green: 0.925, blue: 0.937).opacity(0.52)
+    /// 胶片橙：只用在选中项、关键数值、主按钮上，一页不要超过三处
+    static let ochre = Color(red: 0.910, green: 0.451, blue: 0.235)
+    /// 面板底：比底栏再亮一点，形成层次
+    static let card = Color(red: 0.125, green: 0.125, blue: 0.137)
     /// 细描边
-    static let hairline = Color(red: 0.106, green: 0.098, blue: 0.086).opacity(0.12)
+    static let hairline = Color(red: 0.925, green: 0.925, blue: 0.937).opacity(0.12)
+    /// 遮罩与分隔用的纯黑
+    static let veil = Color.black.opacity(0.55)
 
     static let titleFont = Font.system(size: 32, weight: .semibold, design: .serif)
     static let cardTitleFont = Font.system(size: 17, weight: .semibold, design: .serif)
@@ -29,14 +31,13 @@ enum FL {
     static let monoFont = Font.system(size: 11, weight: .medium, design: .monospaced)
 }
 
-/// 纸感底纹：顶部一层暖光 + 一层极淡噪点，模拟相纸纹理。
-/// 噪点是确定性算法生成的（同一次渲染每次一样），不用随机数，避免界面「呼吸」。
+/// 底纹：顶部一层极淡的冷光 + 一层确定性噪点，深色底下这点颗粒感是「剪辑台」的味道
 struct PaperBackground: View {
     var body: some View {
         ZStack {
             FL.paper
             LinearGradient(
-                colors: [Color.white.opacity(0.50), Color.clear, FL.paperDeep.opacity(0.70)],
+                colors: [Color.white.opacity(0.06), Color.clear, Color.black.opacity(0.35)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
