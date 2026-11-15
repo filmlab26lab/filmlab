@@ -32,6 +32,10 @@ struct Uniforms {
     float tintShift;     // 色偏：-1 偏绿（富士系）/ +1 偏品红（柯达系）
     float chroma;        // 1=彩色 0=黑白（黑白底片型号用这个去色）
     int   rotateQuarter; // 0/1/2/3 个 90°：视频的旋转变换（相册里竖拍的片子靠这个摆正）
+    float exposure;      // 曝光补偿（EV）：-1~+1
+    float contrast;      // 反差：-1 更平 / +1 更硬
+    float glow;          // 光晕：亮部向外扩散的柔光（四向八抽样近似）
+    float vignette;      // 暗角
 };
 
 // 把「显示方向」的 uv 转回「源画面」的 uv。
@@ -185,6 +189,25 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
         ? src.sample(samp, clamp(suv, 0.0f, 1.0f)).rgb
         : test_pattern(uv);
 
+    // 光晕（glow）：在画面周围 8 个方向取样，只把「亮部」加回来，近似出柔光扩散。
+    // 用 8 抽样而不是高斯卷积，是因为手机上一帧要跑满 60fps，多 8 次采样已经很贵了。
+    float3 glowAccum = float3(0.0f);
+    if (u.glow > 0.001f) {
+        float radius = 0.006f + u.glow * 0.022f;
+        for (int gi = 0; gi < 8; gi++) {
+            float ang = float(gi) * 0.7853982f;          // 每 45°
+            float2 off = float2(cos(ang), sin(ang)) * radius;
+            float2 gduv = clamp(float2(u.cropX + (uv.x + off.x) * u.cropW,
+                                       u.cropY + (uv.y + off.y) * u.cropH), 0.0f, 1.0f);
+            float3 s = (u.useTexture != 0)
+                ? src.sample(samp, clamp(rotate_uv(gduv, u.rotateQuarter), 0.0f, 1.0f)).rgb
+                : display;
+            float l = dot(s, float3(0.2126f, 0.7152f, 0.0722f));
+            glowAccum += s * smoothstep(0.52f, 0.95f, l);
+        }
+        glowAccum *= 0.125f;
+    }
+
     // 显示参考值 → 场景线性光
     float3 scene = float3(rec709_to_linear(display.r),
                           rec709_to_linear(display.g),
@@ -208,6 +231,9 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
     }
 
     lin = clamp(lin, 0.0f, 1.0f);
+
+    // 曝光补偿：线性光域里翻 EV，暗部不会像曲线抬升那样发灰
+    lin = clamp(lin * exp2(u.exposure), 0.0f, 1.0f);
 
     // 黑位抬升
     lin += u.blackRaise * u.filmStrength;
@@ -245,6 +271,9 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
     float halo = smoothstep(0.72f, 0.97f, y);
     lin += float3(1.0f, 0.72f, 0.55f) * halo * u.haloPower;
 
+    // 光晕：亮部扩散的柔光，颜色偏暖，权重很小 —— 它的作用是「让亮处发光」，不是给整张加雾
+    lin += glowAccum * float3(1.0f, 0.88f, 0.74f) * (u.glow * 0.85f);
+
     // 密度联动颗粒；颗粒坐标用裁剪后的 uv，换裁剪框时颗粒不会跟着画面漂
     lin += film_grain(suv, y, u.time) * u.grainAmount;
 
@@ -260,5 +289,16 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
     float3 outColor = float3(linear_to_rec709(lin.r),
                              linear_to_rec709(lin.g),
                              linear_to_rec709(lin.b));
+    outColor = clamp(outColor, 0.0f, 1.0f);
+
+    // 反差：在显示域里绕 0.5 拉开，比在线性域里拉开更符合「看起来的对比度」
+    float k = 1.0f + u.contrast * 0.55f;
+    outColor = clamp((outColor - 0.5f) * k + 0.5f, 0.0f, 1.0f);
+
+    // 暗角：到画面中心的距离平方做衰减，四角最暗，中心完全不动
+    float2 vp = uv - 0.5f;
+    float d2 = clamp(dot(vp, vp) * 2.0f, 0.0f, 1.0f);
+    outColor *= (1.0f - u.vignette * d2);
+
     return float4(clamp(outColor, 0.0f, 1.0f), 1.0f);
 }
