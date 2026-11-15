@@ -117,7 +117,7 @@ struct CropOverlay: View {
     // MARK: 遮罩
 
     private func shade(size: CGSize, hole: CGRect) -> some View {
-        let color = FL.ink.opacity(0.42)
+        let color = Color.black.opacity(0.62)
         return ZStack(alignment: .topLeading) {
             Rectangle().fill(color)
                 .frame(width: size.width, height: max(0, hole.minY))
