@@ -38,6 +38,7 @@ targets:
       properties:
         CFBundleDisplayName: FilmLab
         CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
         MinimumOSVersion: "17.0"
         # 照片项目要读相册（选片）和写相册（导出），这两条文案会出现在系统授权弹窗上
         NSPhotoLibraryUsageDescription: "选择要调色的照片，只在设备本地处理，不上传。"
