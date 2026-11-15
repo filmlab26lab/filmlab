@@ -15,13 +15,15 @@ struct VideoProjectView: View {
 
     @AppStorage(FLKey.defaultStock) private var defaultStockID: String = "portra400"
     @AppStorage(FLKey.defaultPreset) private var defaultPresetRaw: String = FilmPreset.neutral.rawValue
+    @AppStorage(FLKey.defaultPaper) private var defaultPaperID: String = "crystalArchiveTypeII"
 
     @State private var clips: [VideoClip] = []
     @State private var selectedID: UUID?
     @State private var pickedVideo: PhotosPickerItem?
     @State private var stockID: String = "portra400"
+    @State private var paperID: String = "crystalArchiveTypeII"
     @State private var preset: FilmPreset = .neutral
-    @State private var params = FilmStock.all[1].params
+    @State private var params = FilmPaper.all[1].applied(to: FilmStock.all[1].params)
     @State private var aspect: CropAspect = CropAspect.all[3]
     @State private var tab: String = "adjust"
     @State private var playToken = 0
@@ -49,6 +51,10 @@ struct VideoProjectView: View {
 
     private var currentStock: FilmStock {
         FilmStock.all.first { $0.id == stockID } ?? FilmStock.none
+    }
+
+    private var currentPaper: FilmPaper {
+        FilmPaper.all.first { $0.id == paperID } ?? FilmPaper.none
     }
 
     private var crop: CGRect {
@@ -84,6 +90,9 @@ struct VideoProjectView: View {
             didLoadDefault = true
             if let stock = FilmStock.all.first(where: { $0.id == defaultStockID }) {
                 stockID = stock.id
+            }
+            if let paper = FilmPaper.all.first(where: { $0.id == defaultPaperID }) {
+                paperID = paper.id
             }
             preset = FilmPreset(rawValue: defaultPresetRaw) ?? .neutral
             rebuildParams()
@@ -358,7 +367,26 @@ struct VideoProjectView: View {
                 }
                 .padding(.vertical, 1)
             }
-            Text(currentStock.note + "。型号为风格参考，与厂商无关联。")
+            Text("\(currentStock.kind.rawValue) · \(currentStock.note)。型号为风格参考，与厂商无关联。")
+                .font(.system(size: 11))
+                .foregroundStyle(FL.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().overlay(FL.hairline).padding(.vertical, 4)
+
+            PanelHeader(title: "相纸", detail: currentPaper.displayName)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FilmPaper.all) { paper in
+                        ChipButton(title: paper.name, subtitle: paper.brand, active: paper.id == paperID) {
+                            paperID = paper.id
+                            rebuildParams()
+                        }
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+            Text(currentPaper.note + "。相纸定的是打印这一段的反差肩部、白点和黑位。")
                 .font(.system(size: 11))
                 .foregroundStyle(FL.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
@@ -406,6 +434,17 @@ struct VideoProjectView: View {
                         display: { String(format: "%.0f%%", $0 * 100) })
             PanelSlider(title: "黑位抬升", value: $params.blackRaise, range: 0...0.2,
                         display: { String(format: "%.2f", $0) })
+
+            Divider().overlay(FL.hairline).padding(.vertical, 4)
+            PanelHeader(title: "相纸（打印段）", detail: currentPaper.displayName)
+            PanelSlider(title: "纸反差", value: $params.paperContrast, range: 0...1,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "纸高光压缩", value: $params.paperWhite, range: 0...0.3,
+                        display: { String(format: "%.2f", $0) })
+            PanelSlider(title: "纸黑位", value: $params.paperBlack, range: 0...0.1,
+                        display: { String(format: "%.3f", $0) })
+            PanelSlider(title: "纸色偏", value: $params.paperWarmth, range: -0.3...0.3,
+                        display: { $0 < -0.02 ? "偏冷" : ($0 > 0.02 ? "偏暖" : "中性") })
             Text("导出会把当前比例、底片、全部参数一起烘进画面。")
                 .font(.system(size: 11))
                 .foregroundStyle(FL.inkSoft)
@@ -441,7 +480,7 @@ struct VideoProjectView: View {
     // MARK: 逻辑
 
     private func rebuildParams() {
-        params = preset.applied(to: currentStock.params)
+        params = currentPaper.applied(to: preset.applied(to: currentStock.params))
     }
 
     private func importVideo(from item: PhotosPickerItem?) {
