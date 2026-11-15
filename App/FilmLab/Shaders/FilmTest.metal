@@ -78,17 +78,27 @@ float log_decode_code(float code, float c18, float c100) {
     return pow(10.0f, (code - c18) / k);
 }
 
-void log_anchors(int mode, float &c18, float &c100) {
+// 注意：Metal 不允许 void f(float &x) 这种「引用出参」（MSL 要求引用必须带地址空间限定，
+// 写 thread float& 才行，而且容易在宿主与着色器之间产生歧义）。这里改成返回结构体，
+// 是 MSL 里最稳妥的写法。
+struct LogAnchors {
+    float c18;
+    float c100;
+};
+
+LogAnchors log_anchors(int mode) {
     // TODO(正式版)：替换为厂商公开规范数值，当前为锚点近似
+    LogAnchors a;
     if (mode == 1) {          // Sony S-Log3（18% 灰≈0.410，白≈0.616）
-        c18 = 0.410f; c100 = 0.616f;
+        a.c18 = 0.410f; a.c100 = 0.616f;
     } else if (mode == 2) {   // DJI D-Log
-        c18 = 0.330f; c100 = 0.650f;
+        a.c18 = 0.330f; a.c100 = 0.650f;
     } else if (mode == 3) {   // Nikon N-Log
-        c18 = 0.369f; c100 = 0.620f;
+        a.c18 = 0.369f; a.c100 = 0.620f;
     } else {                  // Rec.709 直通（不使用）
-        c18 = 0.180f; c100 = 1.000f;
+        a.c18 = 0.180f; a.c100 = 1.000f;
     }
+    return a;
 }
 
 // ---------------------------------------------------------------- 测试图
@@ -157,8 +167,9 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
     if (u.inputMode == 0) {
         lin = scene;
     } else {
-        float c18, c100;
-        log_anchors(u.inputMode, c18, c100);
+        LogAnchors anchors = log_anchors(u.inputMode);
+        float c18 = anchors.c18;
+        float c100 = anchors.c100;
         float3 code = float3(log_encode_linear(scene.r, c18, c100),
                              log_encode_linear(scene.g, c18, c100),
                              log_encode_linear(scene.b, c18, c100));
