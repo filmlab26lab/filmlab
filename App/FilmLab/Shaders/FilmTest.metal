@@ -22,7 +22,7 @@ struct Uniforms {
     float colorDensity;  // 色彩密度
     float blackRaise;    // 黑位抬升
     int   inputMode;     // 0=Rec.709 直通 1=S-Log3 2=D-Log 3=N-Log
-    float pad0;
+    int   useTexture;    // 0=用测试色卡 1=采样输入照片
 };
 
 struct VSOut {
@@ -151,10 +151,16 @@ float film_s_curve(float x, float strength) {
 
 // ---------------------------------------------------------------- 主片段
 
+// 同一个片段函数服务两种输入：
+//   useTexture=1 时采样照片纹理（照片项目页、导出都走这里）
+//   useTexture=0 时画内置测试色卡（没选照片的空态）
+// 采样器必须一直绑着，所以宿主会塞一张 1x1 占位纹理，别让采样读到空对象。
 fragment float4 film_fragment(VSOut in [[stage_in]],
-                              constant Uniforms &u [[buffer(0)]]) {
+                              constant Uniforms &u [[buffer(0)]],
+                              texture2d<float> src [[texture(0)]],
+                              sampler samp [[sampler(0)]]) {
     float2 uv = in.uv;
-    float3 display = test_pattern(uv);
+    float3 display = (u.useTexture != 0) ? src.sample(samp, uv).rgb : test_pattern(uv);
 
     // 显示参考值 → 场景线性光
     float3 scene = float3(rec709_to_linear(display.r),
