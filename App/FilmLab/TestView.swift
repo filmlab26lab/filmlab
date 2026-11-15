@@ -61,15 +61,16 @@ struct TestView: View {
             infoFooter
         }
         .padding(16)
-        .background(Color(.systemBackground))
+        .background(PaperBackground())
     }
 
     // MARK: 子视图
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("FilmLab 测试包")
-                .font(.title2.bold())
+            Text("链路自检")
+                .font(FL.cardTitleFont)
+                .foregroundStyle(FL.ink)
             Text("验证设备 / Metal / 胶片冲印管线")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
