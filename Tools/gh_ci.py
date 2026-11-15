@@ -138,9 +138,15 @@ def upload(owner):
     return ok
 
 
+BASE_ID = 0  # 触发前已有的最大 run id：只认比它新的，避免把上一次的旧结论当成这一次的
+
+
 def trigger(owner):
+    global BASE_ID
     log("== 3/4 触发云端编译 ==")
-    # 默认分支可能不是 main（首次提交后才会确定），先查一下
+    runs = api("GET", "/repos/%s/%s/actions/workflows/%s/runs?per_page=10" % (owner, REPO, WORKFLOW_FILE))
+    BASE_ID = max([r["id"] for r in runs.get("workflow_runs", [])], default=0)
+    log("  基线 run id = %s" % BASE_ID)
     repo_info = api("GET", "/repos/%s/%s" % (owner, REPO))
     default_branch = repo_info.get("default_branch") or "main"
     r = api("POST", "/repos/%s/%s/actions/workflows/%s/dispatches" % (owner, REPO, WORKFLOW_FILE),
@@ -162,7 +168,7 @@ def wait_run(owner, branch, timeout_min=25):
         if runs.get("_error"):
             log("查询运行记录失败：%s" % runs.get("_body"))
         else:
-            items = runs.get("workflow_runs", [])
+            items = [x for x in runs.get("workflow_runs", []) if x["id"] > BASE_ID]
             if items:
                 run_id = items[0]["id"]
                 st, concl = items[0]["status"], items[0]["conclusion"]
