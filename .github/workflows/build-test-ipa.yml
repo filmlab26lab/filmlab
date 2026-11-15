@@ -4,15 +4,16 @@ name: 生成测试IPA
 #      产出的是「未签名 IPA」，下载回 Windows 后再用爱思助手签名安装。
 # 为什么要在云端编译：iOS 的二进制必须有 macOS + Xcode 才能编译出来，Windows 上没有任何办法。
 
+# 只在手动触发时跑：避免每推送一个文件就排队一次（会产生一堆重复的挂起运行）
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
-    runs-on: macos-14
-    timeout-minutes: 30
+    # 注意：macos-14 已被 GitHub 下线，用这个标签任务会在分配机器前直接被取消（0 步、计费 0ms）
+    # macos-latest = macOS 15 + Xcode 16，实测可正常跑
+    runs-on: macos-latest
+    timeout-minutes: 40
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
