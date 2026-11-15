@@ -44,7 +44,7 @@ struct HomeView: View {
                             kicker: "VIDEO",
                             icon: "film",
                             title: "新建视频项目",
-                            note: "建立视频工程：时长、帧率、画幅与输入 Log"
+                            note: "导入片段，播放时逐帧调色，按比例裁剪后导出到相册"
                         )
                     }
                     .buttonStyle(.plain)
