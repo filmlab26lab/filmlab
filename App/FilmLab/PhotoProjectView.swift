@@ -1,8 +1,7 @@
 //
 //  PhotoProjectView.swift
-//  照片项目：导入 → 实时调色（离屏渲染，所见即所得）→ 自由裁剪 → 选底片型号 → 导出到相册。
-//  预览之所以不用 MTKView 而用「后台渲染 + Image 显示」：调色是静态画面，
-//  这条路径没有黑屏/首帧丢失的风险，而且导出与预览走的是同一段着色器数学。
+//  照片项目：剪辑器外框 —— 顶部条 / 黑底大画幅 / 底部图标栏 + 面板。
+//  面板分五格：预设、底片、调整、效果、裁剪；参数改了预览立刻重渲染（离屏，所见即所得）。
 //
 
 import SwiftUI
@@ -10,6 +9,8 @@ import PhotosUI
 import UIKit
 
 struct PhotoProjectView: View {
+
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage(FLKey.defaultStock) private var defaultStockID: String = "portra400"
     @AppStorage(FLKey.defaultPreset) private var defaultPresetRaw: String = FilmPreset.neutral.rawValue
@@ -22,11 +23,20 @@ struct PhotoProjectView: View {
     @State private var preset: FilmPreset = .neutral
     @State private var crop: CGRect = CropMath.fullRect
     @State private var aspect: CropAspect = CropAspect.all[0]
+    @State private var tab: String = "adjust"
     @State private var didLoadDefault = false
     @State private var showSavedAlert = false
     @State private var errorText: String?
     @State private var pendingWork: DispatchWorkItem?
-    @State private var isRendering = false
+    @State private var exporting = false
+
+    private let tabs = [
+        EditorTabItem(id: "preset", icon: "camera.filters", label: "预设"),
+        EditorTabItem(id: "stock", icon: "film", label: "底片"),
+        EditorTabItem(id: "adjust", icon: "slider.horizontal.3", label: "调整"),
+        EditorTabItem(id: "effect", icon: "sparkles", label: "效果"),
+        EditorTabItem(id: "crop", icon: "crop", label: "裁剪"),
+    ]
 
     private var imageAspect: CGFloat {
         guard let image, image.size.height > 0 else { return 4.0 / 3.0 }
@@ -38,39 +48,28 @@ struct PhotoProjectView: View {
     }
 
     var body: some View {
-        ZStack {
-            PaperBackground()
+        VStack(spacing: 0) {
+            EditorTopBar(title: currentStock.displayName,
+                         saveTitle: exporting ? "导出中" : "保存",
+                         saveEnabled: image != nil && !exporting,
+                         onBack: { dismiss() },
+                         onSave: { export() },
+                         onReset: { reset() })
+
+            previewArea
+
+            Divider().overlay(FL.hairline)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    previewBlock
-                    cropCard
-                    stockCard
-                    paramsCard
-                    actionRow
-                    privacyLine
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 6)
-                .padding(.bottom, 28)
+                panel
             }
+            .frame(maxHeight: 268)
+
+            EditorTabBar(items: tabs, selection: $tab)
         }
-        .navigationTitle("照片项目")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(FL.paper, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    export()
-                } label: {
-                    Text(isRendering ? "导出中" : "导出")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(image == nil ? FL.inkSoft : FL.ochre)
-                }
-                .disabled(image == nil || isRendering)
-            }
-        }
+        .background(FL.paper)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             guard !didLoadDefault else { return }
             didLoadDefault = true
@@ -101,10 +100,12 @@ struct PhotoProjectView: View {
         }
     }
 
-    // MARK: 预览 + 裁剪框
+    // MARK: 画面
 
-    private var previewBlock: some View {
-        VStack(spacing: 8) {
+    private var previewArea: some View {
+        ZStack {
+            Color.black
+
             Color.clear
                 .aspectRatio(imageAspect, contentMode: .fit)
                 .overlay(
@@ -114,128 +115,204 @@ struct PhotoProjectView: View {
                                 .resizable()
                                 .scaledToFill()
                         } else {
-                            ZStack {
-                                FL.paperDeep
-                                VStack(spacing: 8) {
-                                    Image(systemName: "photo.on.rectangle.angled")
-                                        .font(.system(size: 22, weight: .regular))
-                                        .foregroundStyle(FL.inkSoft)
-                                    Text(image == nil ? "还没有照片" : "正在渲染预览…")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(FL.inkSoft)
-                                }
+                            VStack(spacing: 10) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 26))
+                                    .foregroundStyle(FL.inkSoft)
+                                Text(image == nil ? "选一张照片开始" : "正在渲染预览…")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(FL.inkSoft)
                             }
                         }
                     }
                 )
                 .overlay(
                     Group {
-                        if image != nil {
+                        if tab == "crop", image != nil {
                             CropOverlay(crop: $crop,
                                         ratio: aspect.ratio,
                                         imageAspect: imageAspect)
                         }
                     }
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(FL.hairline, lineWidth: 1)
-                )
+                .clipped()
 
-            HStack(spacing: 6) {
-                Text(image == nil ? "空态 · 测试色卡" : "实时预览 · \(currentStock.displayName)")
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.inkSoft)
-                Spacer(minLength: 0)
-                Text(cropText)
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.ochre)
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    PhotosPicker(selection: $pickedItem, matching: .images, photoLibrary: .shared()) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(image == nil ? "导入照片" : "换一张")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(Color.white.opacity(0.16)))
+                        .foregroundStyle(Color.white)
+                    }
+                    .padding(14)
+                }
             }
-            .padding(.horizontal, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: 面板
+
+    @ViewBuilder
+    private var panel: some View {
+        switch tab {
+        case "preset": presetPanel
+        case "stock": stockPanel
+        case "adjust": adjustPanel
+        case "effect": effectPanel
+        default: cropPanel
         }
     }
 
-    private var cropText: String {
-        guard let image else { return "裁剪 —" }
-        let wpx = Int(image.size.width * crop.width)
-        let hpx = Int(image.size.height * crop.height)
-        return "\(wpx)×\(hpx)"
+    private var presetPanel: some View {
+        PanelBox {
+            PanelHeader(title: "力度预设", detail: preset.rawValue)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FilmPreset.allCases) { p in
+                        ChipButton(title: p.rawValue, active: preset == p) {
+                            preset = p
+                            rebuildParams()
+                        }
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+            Text(preset.note + "。预设只缩放力度，不覆盖底片本身的色味。")
+                .font(.system(size: 11))
+                .foregroundStyle(FL.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
-    // MARK: 裁剪
-
-    private var cropCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("裁剪").flSectionLabel()
-                Spacer(minLength: 0)
-                Text(aspect.title)
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.ochre)
+    private var stockPanel: some View {
+        PanelBox {
+            PanelHeader(title: "底片型号", detail: currentStock.displayName)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FilmStock.all) { stock in
+                        ChipButton(title: stock.name, subtitle: stock.brand, active: stock.id == stockID) {
+                            stockID = stock.id
+                            rebuildParams()
+                        }
+                    }
+                }
+                .padding(.vertical, 1)
             }
+            Text(currentStock.note + "。型号为风格参考，与厂商无关联。")
+                .font(.system(size: 11))
+                .foregroundStyle(FL.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
+    private var adjustPanel: some View {
+        PanelBox {
+            PanelSlider(title: "曝光", value: $params.exposure, range: -1...1,
+                        display: { String(format: "%+.2f EV", $0) })
+            PanelSlider(title: "对比", value: $params.contrast, range: -1...1,
+                        display: { String(format: "%+.0f", $0 * 100) })
+            PanelSlider(title: "色温", value: $params.colorTemp, range: -1...1,
+                        display: { $0 < -0.02 ? "偏冷" : ($0 > 0.02 ? "偏暖" : "中性") })
+            PanelSlider(title: "色偏", value: $params.tintShift, range: -1...1,
+                        display: { $0 < -0.02 ? "偏绿" : ($0 > 0.02 ? "偏品红" : "中性") })
+            PanelSlider(title: "饱和度", value: $params.chroma, range: 0...1,
+                        display: { $0 < 0.05 ? "黑白" : String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "胶片强度", value: $params.strength, range: 0...1,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+
+            VStack(alignment: .leading, spacing: 6) {
+                PanelHeader(title: "输入色彩空间", detail: currentLogMode.title)
+                Picker("输入色彩空间", selection: $params.inputMode) {
+                    ForEach(LogMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
+
+    private var effectPanel: some View {
+        PanelBox {
+            PanelSlider(title: "光晕", value: $params.glow, range: 0...1,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "Halation", value: $params.halo, range: 0...0.40,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "颗粒", value: $params.grain, range: 0...0.20,
+                        display: { String(format: "%.3f", $0) })
+            PanelSlider(title: "色彩密度", value: $params.colorDensity, range: 0...1,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "暗角", value: $params.vignette, range: 0...1,
+                        display: { String(format: "%.0f%%", $0 * 100) })
+            PanelSlider(title: "黑位抬升", value: $params.blackRaise, range: 0...0.2,
+                        display: { String(format: "%.2f", $0) })
+            Text("光晕是亮部柔光扩散，Halation 是红橙溢光 —— 两个一起加才像真胶片。")
+                .font(.system(size: 11))
+                .foregroundStyle(FL.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var cropPanel: some View {
+        PanelBox {
+            PanelHeader(title: "比例与裁剪", detail: cropText)
             CropAspectBar(aspect: $aspect, crop: $crop, imageAspect: imageAspect)
 
-            VStack(spacing: 5) {
-                HStack {
-                    Text("裁剪大小")
-                        .font(FL.labelFont)
-                        .foregroundStyle(FL.ink)
-                    Spacer(minLength: 0)
-                    Text(String(format: "%.0f%%", cropScaleFraction * 100))
-                        .font(FL.monoFont)
-                        .foregroundStyle(FL.ochre)
+            PanelSlider(title: "裁剪大小", value: Binding(
+                get: { cropScaleFraction },
+                set: { fraction in
+                    crop = CropMath.scaled(crop, fraction: fraction,
+                                           ratio: aspect.ratio, imageAspect: imageAspect)
                 }
-                Slider(value: Binding(
-                    get: { cropScaleFraction },
-                    set: { fraction in
-                        crop = CropMath.scaled(crop, fraction: fraction,
-                                               ratio: aspect.ratio, imageAspect: imageAspect)
-                    }
-                ), in: 0.1...1.0)
-                .tint(FL.ochre)
-            }
+            ), range: 0.1...1.0, display: { String(format: "%.0f%%", $0 * 100) })
 
-            HStack(spacing: 12) {
-                offsetSlider(title: "水平", value: Binding(
+            HStack(spacing: 14) {
+                PanelSlider(title: "水平", value: Binding(
                     get: { Double(crop.minX) },
                     set: { v in
                         var r = crop
                         r.origin.x = min(max(0, CGFloat(v)), 1 - r.width)
                         crop = r
                     }
-                ), upper: 1 - crop.width)
+                ), range: 0...Double(max(0.01, 1 - crop.width)),
+                   display: { String(format: "%.2f", $0) })
 
-                offsetSlider(title: "垂直", value: Binding(
+                PanelSlider(title: "垂直", value: Binding(
                     get: { Double(crop.minY) },
                     set: { v in
                         var r = crop
                         r.origin.y = min(max(0, CGFloat(v)), 1 - r.height)
                         crop = r
                     }
-                ), upper: 1 - crop.height)
+                ), range: 0...Double(max(0.01, 1 - crop.height)),
+                   display: { String(format: "%.2f", $0) })
             }
         }
-        .filmCard(padding: 16)
-        .opacity(image == nil ? 0.5 : 1)
+        .opacity(image == nil ? 0.45 : 1)
         .disabled(image == nil)
     }
 
-    private func offsetSlider(title: String, value: Binding<Double>, upper: CGFloat) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(FL.inkSoft)
-                Spacer(minLength: 0)
-                Text(String(format: "%.2f", value.wrappedValue))
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.inkSoft)
-            }
-            Slider(value: value, in: 0...Double(max(0.01, upper)))
-                .tint(FL.inkSoft)
-        }
+    // MARK: 派生值
+
+    private var currentLogMode: LogMode {
+        LogMode(rawValue: params.inputMode) ?? .rec709
+    }
+
+    private var cropText: String {
+        guard let image else { return "—" }
+        let wpx = Int(image.size.width * crop.width)
+        let hpx = Int(image.size.height * crop.height)
+        return "\(wpx)×\(hpx)"
     }
 
     private var cropScaleFraction: Double {
@@ -244,199 +321,19 @@ struct PhotoProjectView: View {
         return Double(min(1.0, max(0.1, crop.width / maxR.width)))
     }
 
-    // MARK: 底片型号
-
-    private var stockCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("底片").flSectionLabel()
-                Spacer(minLength: 0)
-                Text(currentStock.displayName)
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.ochre)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(FilmStock.all) { stock in
-                        let active = stock.id == stockID
-                        Button {
-                            stockID = stock.id
-                            rebuildParams()
-                        } label: {
-                            VStack(spacing: 2) {
-                                Text(stock.brand)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(active ? FL.paper.opacity(0.75) : FL.inkSoft)
-                                Text(stock.name)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(active ? FL.paper : FL.ink)
-                            }
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(active ? FL.ink : FL.card)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(FL.hairline, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 1)
-            }
-
-            Text(currentStock.note)
-                .font(.system(size: 11))
-                .foregroundStyle(FL.inkSoft)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .filmCard(padding: 16)
-    }
-
-    // MARK: 参数
-
-    private var paramsCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("调节").flSectionLabel()
-                Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    ForEach(FilmPreset.allCases) { p in
-                        Button {
-                            preset = p
-                            rebuildParams()
-                        } label: {
-                            Text(p.rawValue)
-                                .font(.system(size: 11, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(preset == p ? FL.ink : FL.card))
-                                .foregroundStyle(preset == p ? FL.paper : FL.ink)
-                                .overlay(Capsule().stroke(FL.hairline, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            sliderRow("胶片强度", value: $params.strength, range: 0...1,
-                      display: { String(format: "%.0f%%", $0 * 100) })
-            sliderRow("颗粒", value: $params.grain, range: 0...0.20,
-                      display: { String(format: "%.3f", $0) })
-            sliderRow("Halation", value: $params.halo, range: 0...0.40,
-                      display: { String(format: "%.0f%%", $0 * 100) })
-            sliderRow("色彩密度", value: $params.colorDensity, range: 0...1,
-                      display: { String(format: "%.0f%%", $0 * 100) })
-            sliderRow("色温", value: $params.colorTemp, range: -1...1,
-                      display: { $0 < -0.02 ? "偏冷" : ($0 > 0.02 ? "偏暖" : "中性") })
-            sliderRow("色偏", value: $params.tintShift, range: -1...1,
-                      display: { $0 < -0.02 ? "偏绿" : ($0 > 0.02 ? "偏品红" : "中性") })
-            sliderRow("饱和度", value: $params.chroma, range: 0...1,
-                      display: { $0 < 0.05 ? "黑白" : String(format: "%.0f%%", $0 * 100) })
-
-            Divider().overlay(FL.hairline)
-
-            logPicker
-        }
-        .filmCard(padding: 16)
-    }
-
-    private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
-                           display: @escaping (Double) -> String) -> some View {
-        VStack(spacing: 5) {
-            HStack {
-                Text(title)
-                    .font(FL.labelFont)
-                    .foregroundStyle(FL.ink)
-                Spacer(minLength: 0)
-                Text(display(value.wrappedValue))
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.ochre)
-            }
-            Slider(value: value, in: range).tint(FL.ochre)
-        }
-    }
-
-    private var logPicker: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("输入色彩空间")
-                    .font(FL.labelFont)
-                    .foregroundStyle(FL.ink)
-                Spacer(minLength: 0)
-                Text(currentLogMode.title)
-                    .font(FL.monoFont)
-                    .foregroundStyle(FL.ochre)
-            }
-            Picker("输入色彩空间", selection: $params.inputMode) {
-                ForEach(LogMode.allCases) { mode in
-                    Text(mode.title).tag(mode.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var currentLogMode: LogMode {
-        LogMode(rawValue: params.inputMode) ?? .rec709
-    }
-
-    // MARK: 操作
-
-    private var actionRow: some View {
-        HStack(spacing: 10) {
-            PhotosPicker(selection: $pickedItem, matching: .images, photoLibrary: .shared()) {
-                HStack(spacing: 7) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text(image == nil ? "导入照片" : "换一张")
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(FL.ink))
-                .foregroundStyle(FL.paper)
-            }
-
-            Button {
-                crop = CropMath.fullRect
-                aspect = CropAspect.all[0]
-                preset = FilmPreset(rawValue: defaultPresetRaw) ?? .neutral
-                rebuildParams()
-            } label: {
-                Text("复位")
-                    .font(.system(size: 14, weight: .medium))
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 11)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(FL.card))
-                    .foregroundStyle(FL.ink)
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(FL.hairline, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-
-            Spacer(minLength: 0)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var privacyLine: some View {
-        Text("渲染在设备本地完成，不联网、不上传照片。底片型号为风格参考，与各厂商无关联。")
-            .font(FL.monoFont)
-            .foregroundStyle(FL.inkSoft)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.leading, 2)
-    }
-
     // MARK: 逻辑
 
     private func rebuildParams() {
         params = preset.applied(to: currentStock.params)
         schedulePreview()
+    }
+
+    private func reset() {
+        crop = CropMath.fullRect
+        aspect = CropAspect.all[0]
+        preset = FilmPreset(rawValue: defaultPresetRaw) ?? .neutral
+        stockID = defaultStockID
+        rebuildParams()
     }
 
     private func importImage(from item: PhotosPickerItem?) {
@@ -478,12 +375,12 @@ struct PhotoProjectView: View {
     }
 
     private func export() {
-        guard let image else { return }
-        isRendering = true
+        guard let image, !exporting else { return }
+        exporting = true
         let params = self.params
         let cropRect = crop
         PreviewRenderer.render(image: image, params: params, crop: cropRect, longSide: 2200) { out in
-            self.isRendering = false
+            self.exporting = false
             guard let out else {
                 self.errorText = "渲染失败：这台设备的 Metal 拒绝出图"
                 return
