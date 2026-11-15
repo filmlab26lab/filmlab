@@ -1,0 +1,56 @@
+name: 生成测试IPA
+
+# 作用：在 GitHub 的云端 macOS 机器上把这个工程编译成手机能装的 IPA，
+#      产出的是「未签名 IPA」，下载回 Windows 后再用爱思助手签名安装。
+# 为什么要在云端编译：iOS 的二进制必须有 macOS + Xcode 才能编译出来，Windows 上没有任何办法。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        working-directory: App
+        run: xcodegen generate
+
+      - name: 编译（关闭签名）
+        working-directory: App
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project FilmLab.xcodeproj \
+            -scheme FilmLab \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: 打包成 IPA
+        run: |
+          mkdir -p out/Payload
+          cp -R App/build/Build/Products/Release-iphoneos/FilmLab.app out/Payload/
+          cd out
+          zip -r -q ../FilmLab-test-unsigned.ipa Payload
+          ls -lh ../FilmLab-test-unsigned.ipa
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmLab-test-unsigned
+          path: FilmLab-test-unsigned.ipa
+          if-no-files-found: error
