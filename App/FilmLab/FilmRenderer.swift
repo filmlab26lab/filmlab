@@ -33,6 +33,10 @@ struct FilmUniforms {
     var tintShift: Float = 0
     var chroma: Float = 1
     var rotateQuarter: Int32 = 0
+    var exposure: Float = 0
+    var contrast: Float = 0
+    var glow: Float = 0.10
+    var vignette: Float = 0.18
 
     /// 从界面参数生成 uniform；裁剪是归一化到源图的窗口
     static func make(params: FilmParams, crop: CGRect, useTexture: Bool,
@@ -54,6 +58,10 @@ struct FilmUniforms {
         u.tintShift = Float(params.tintShift)
         u.chroma = Float(params.chroma)
         u.rotateQuarter = Int32(rotation)
+        u.exposure = Float(params.exposure)
+        u.contrast = Float(params.contrast)
+        u.glow = Float(params.glow)
+        u.vignette = Float(params.vignette)
         return u
     }
 }
