@@ -36,6 +36,11 @@ struct Uniforms {
     float contrast;      // 反差：-1 更平 / +1 更硬
     float glow;          // 光晕：亮部向外扩散的柔光（四向八抽样近似）
     float vignette;      // 暗角
+    // 相纸（打印阶段）：两段式冲印里第二段的四个量
+    float paperWarmth;   // 相纸色偏：-1 偏冷 / +1 偏暖
+    float paperContrast; // 相纸反差 0~1（相纸肩部比胶片长）
+    float paperWhite;    // 高光压缩：相纸的白不到纯 1.0
+    float paperBlack;    // 相纸黑位抬升：相纸的黑永远带一点密度
 };
 
 // 把「显示方向」的 uv 转回「源画面」的 uv。
@@ -279,12 +284,31 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
 
     lin = clamp(lin, 0.0f, 1.0f);
 
-    // 相纸响应：反差略降、黑位不死黑、白位不是纯白
-    // 用 filmStrength 做闸门，强度归零时这一级必须完全直通
-    float3 paper = lin;
-    paper = smoothstep(0.0f, 0.30f, paper) * 0.50f + paper * 0.50f;
-    paper = paper * 0.94f + 0.03f;
-    lin = mix(lin, paper, u.filmStrength);
+    // 相纸响应（第二段）：负片印到相纸上，纸的反差肩部、白点、黑位、色偏都在这里。
+    // 顺序是「先过相纸曲线 → 再压白位 → 再抬黑位 → 最后纸的色偏」，也就是纸实际成像的顺序。
+    // 全部用 filmStrength 做闸门：强度归零时这一段必须完全直通。
+    float3 pap = lin;
+    if (u.paperContrast > 0.001f) {
+        float pc = clamp(u.paperContrast, 0.0f, 1.0f);
+        pap = float3(film_s_curve(pap.r, pc * 1.2f),
+                     film_s_curve(pap.g, pc * 1.2f),
+                     film_s_curve(pap.b, pc * 1.2f));
+    }
+    // 高光压缩：分母里带自己，亮部越亮压得越多，白位停在 1/(1+w) 附近而不是纯白
+    pap = pap / (1.0f + pap * max(u.paperWhite, 0.0f));
+    // 黑位抬升：相纸有纸基，再好的纸也印不出纯 0
+    pap = pap * (1.0f - clamp(u.paperBlack, 0.0f, 0.2f)) + clamp(u.paperBlack, 0.0f, 0.2f);
+    // 纸的色偏
+    float pw = u.paperWarmth * 0.06f;
+    pap.r *= (1.0f + pw);
+    pap.b *= (1.0f - pw);
+    pap = max(pap, 0.0f);
+
+    // 旧的通用相纸柔化：让暗部过渡不硬，只在有纸时生效
+    float3 soft = smoothstep(0.0f, 0.30f, pap) * 0.50f + pap * 0.50f;
+    pap = mix(soft, pap, clamp(u.paperContrast * 1.6f, 0.0f, 1.0f));
+
+    lin = mix(lin, pap, u.filmStrength);
 
     float3 outColor = float3(linear_to_rec709(lin.r),
                              linear_to_rec709(lin.g),
