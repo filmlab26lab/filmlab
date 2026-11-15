@@ -28,8 +28,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.filmlab.test
         PRODUCT_NAME: FilmLab
         TARGETED_DEVICE_FAMILY: "1,2"          # 1=iPhone 2=iPad
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         CODE_SIGNING_ALLOWED: NO               # 云编译产出的未签名包，回到 Windows 再用爱思签名
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
@@ -37,8 +37,11 @@ targets:
       path: FilmLab/Info.plist
       properties:
         CFBundleDisplayName: FilmLab
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         MinimumOSVersion: "17.0"
+        # 照片项目要读相册（选片）和写相册（导出），这两条文案会出现在系统授权弹窗上
+        NSPhotoLibraryUsageDescription: "选择要调色的照片，只在设备本地处理，不上传。"
+        NSPhotoLibraryAddUsageDescription: "把调好胶片效果的照片存进你的相册。"
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
           - arm64
