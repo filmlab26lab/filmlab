@@ -18,6 +18,10 @@ struct FilmParams: Equatable {
     var colorTemp: Double = 0.0      // -1 冷 / +1 暖
     var tintShift: Double = 0.0      // -1 偏绿 / +1 偏品红
     var chroma: Double = 1.0         // 1 彩色 / 0 黑白
+    var exposure: Double = 0.0       // 曝光补偿，单位 EV，-1~+1
+    var contrast: Double = 0.0       // -1 更平 / +1 更硬，0 为不改
+    var glow: Double = 0.10          // 光晕：亮部向外扩散的柔光（与 Halation 的红橙溢光是两件事）
+    var vignette: Double = 0.18      // 暗角
 }
 
 /// 底片型号（stock）。
