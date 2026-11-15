@@ -83,6 +83,9 @@ final class VideoPreviewView: MTKView, MTKViewDelegate {
     private var textureCache: CVMetalTextureCache?
     private var renderer: FilmRenderer?
     private var currentCVTexture: CVMetalTexture?
+    /// 每秒回报一次播放进度（时间线播放头用），节流到整秒，避免每帧都跳主线程
+    var onTime: ((Double, Double) -> Void)?
+    private var lastReportedSecond: Int = -1
 
     private(set) var renderStatus: String = "初始化中"
 
@@ -177,6 +180,17 @@ final class VideoPreviewView: MTKView, MTKViewDelegate {
         }
 
         renderer.draw(in: view)
+
+        // 进度回报：只在「整秒变了」时跳一次主线程
+        if let item = player?.currentItem, item.status == .readyToPlay {
+            let t = CMTimeGetSeconds(item.currentTime())
+            let d = CMTimeGetSeconds(item.duration)
+            if t.isFinite, d.isFinite, d > 0, Int(t.rounded()) != lastReportedSecond {
+                lastReportedSecond = Int(t.rounded())
+                let callback = onTime
+                DispatchQueue.main.async { callback?(t, d) }
+            }
+        }
     }
 
     private func makeTexture(from pixelBuffer: CVPixelBuffer) -> MTLTexture? {
@@ -203,6 +217,7 @@ struct VideoPreview: UIViewRepresentable {
     var rotation: Int
     var playToken: Int
     var pauseToken: Int
+    var onTime: ((Double, Double) -> Void)? = nil
 
     final class Coordinator {
         var lastURL: URL?
@@ -219,6 +234,7 @@ struct VideoPreview: UIViewRepresentable {
             context.coordinator.lastURL = url
         }
         view.update(params: params, crop: crop, rotation: rotation)
+        view.onTime = onTime
         context.coordinator.lastPlay = playToken
         context.coordinator.lastPause = pauseToken
         return view
@@ -230,6 +246,7 @@ struct VideoPreview: UIViewRepresentable {
             context.coordinator.lastURL = url
         }
         uiView.update(params: params, crop: crop, rotation: rotation)
+        uiView.onTime = onTime
         // 递增计数当成「按下播放/暂停」的信号：只有计数变了才动，改参数不会误触发
         if context.coordinator.lastPlay != playToken {
             context.coordinator.lastPlay = playToken
@@ -239,6 +256,34 @@ struct VideoPreview: UIViewRepresentable {
             context.coordinator.lastPause = pauseToken
             uiView.pause()
         }
+    }
+}
+
+// MARK: - 时间线缩略帧
+
+enum ClipThumbnails {
+    /// 沿着片子均匀抽 count 帧，给底部时间线当缩略条用。
+    /// appliesPreferredTrackTransform = true，所以竖拍的片子缩略图也是正的。
+    static func make(url: URL, count: Int = 10) async -> [UIImage] {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 180, height: 180)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+
+        let duration = CMTimeGetSeconds(asset.duration)
+        guard duration.isFinite, duration > 0 else { return [] }
+
+        var images: [UIImage] = []
+        for i in 0..<count {
+            let t = CMTime(seconds: duration * (Double(i) + 0.5) / Double(count),
+                           preferredTimescale: 600)
+            if let result = try? await generator.image(at: t) {
+                images.append(UIImage(cgImage: result.image))
+            }
+        }
+        return images
     }
 }
 
