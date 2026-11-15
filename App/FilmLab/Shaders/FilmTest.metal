@@ -22,8 +22,26 @@ struct Uniforms {
     float colorDensity;  // 色彩密度
     float blackRaise;    // 黑位抬升
     int   inputMode;     // 0=Rec.709 直通 1=S-Log3 2=D-Log 3=N-Log
-    int   useTexture;    // 0=用测试色卡 1=采样输入照片
+    int   useTexture;    // 0=用测试色卡 1=采样输入纹理
+    // 裁剪窗口（归一化到源图，原点左上）：画面只取这块区域
+    float cropX;
+    float cropY;
+    float cropW;
+    float cropH;
+    float colorTemp;     // 色温：-1 冷 / +1 暖（模拟不同底片的白平衡倾向）
+    float tintShift;     // 色偏：-1 偏绿（富士系）/ +1 偏品红（柯达系）
+    float chroma;        // 1=彩色 0=黑白（黑白底片型号用这个去色）
+    int   rotateQuarter; // 0/1/2/3 个 90°：视频的旋转变换（相册里竖拍的片子靠这个摆正）
 };
+
+// 把「显示方向」的 uv 转回「源画面」的 uv。
+// 用整数映射而不是三角函数：四个象限的对应关系是精确的，不存在浮点误差导致的半像素抖动。
+float2 rotate_uv(float2 uv, int quarter) {
+    if (quarter == 1) return float2(uv.y, 1.0f - uv.x);
+    if (quarter == 2) return float2(1.0f - uv.x, 1.0f - uv.y);
+    if (quarter == 3) return float2(1.0f - uv.y, uv.x);
+    return uv;
+}
 
 struct VSOut {
     float4 position [[position]];
@@ -160,7 +178,12 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
                               texture2d<float> src [[texture(0)]],
                               sampler samp [[sampler(0)]]) {
     float2 uv = in.uv;
-    float3 display = (u.useTexture != 0) ? src.sample(samp, uv).rgb : test_pattern(uv);
+    // 裁剪在「显示方向」上取窗口，再旋转回源画面 —— 用户看到的框就是最终构图
+    float2 duv = float2(u.cropX + uv.x * u.cropW, u.cropY + uv.y * u.cropH);
+    float2 suv = rotate_uv(duv, u.rotateQuarter);
+    float3 display = (u.useTexture != 0)
+        ? src.sample(samp, clamp(suv, 0.0f, 1.0f)).rgb
+        : test_pattern(uv);
 
     // 显示参考值 → 场景线性光
     float3 scene = float3(rec709_to_linear(display.r),
@@ -196,6 +219,21 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
                  film_s_curve(lin.g, u.filmStrength),
                  film_s_curve(lin.b, u.filmStrength));
 
+    // 底片型号的色偏：色温（冷/暖）与色偏（绿/品红）。
+    // 数值刻意做得很小 —— 型号差异应该是「一眼能分辨、但不像滤镜」，不是换了个 App。
+    float tempW = u.colorTemp * 0.075f;
+    lin.r *= (1.0f + tempW);
+    lin.b *= (1.0f - tempW);
+    float tintW = u.tintShift * 0.05f;
+    lin.g *= (1.0f + tintW);
+    lin.r *= (1.0f - tintW * 0.5f);
+    lin.b *= (1.0f - tintW * 0.5f);
+    lin = max(lin, 0.0f);
+
+    // 黑白底片：去色但保留通道比例，便于后面黑白颗粒仍然成立
+    float y0 = dot(lin, float3(0.2126f, 0.7152f, 0.0722f));
+    lin = mix(float3(y0, y0, y0), lin, clamp(u.chroma, 0.0f, 1.0f));
+
     // 色彩密度：高饱和不收死，中调更饱满
     float y = dot(lin, lumaW);
     lin = y + (lin - y) * mix(0.45f, 1.0f, u.colorDensity);
@@ -207,8 +245,8 @@ fragment float4 film_fragment(VSOut in [[stage_in]],
     float halo = smoothstep(0.72f, 0.97f, y);
     lin += float3(1.0f, 0.72f, 0.55f) * halo * u.haloPower;
 
-    // 密度联动颗粒
-    lin += film_grain(uv, y, u.time) * u.grainAmount;
+    // 密度联动颗粒；颗粒坐标用裁剪后的 uv，换裁剪框时颗粒不会跟着画面漂
+    lin += film_grain(suv, y, u.time) * u.grainAmount;
 
     lin = clamp(lin, 0.0f, 1.0f);
 
