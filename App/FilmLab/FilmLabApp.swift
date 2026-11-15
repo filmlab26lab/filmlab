@@ -8,8 +8,8 @@ struct FilmLabApp: App {
                 HomeView()
             }
             .tint(FL.ochre)
-            // 整套视觉是相纸暖白，强制浅色；跟随系统切到深色会把这套配色打散
-            .preferredColorScheme(.light)
+            // 深色剪辑台界面：预览是大面积画面，暗底才不抢画面、也更像专业剪辑 App
+            .preferredColorScheme(.dark)
         }
     }
 }
