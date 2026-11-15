@@ -63,7 +63,15 @@ def urllib_request_quote(s):
     return urllib.parse.quote(s)
 
 
+BASE_ID = 0  # 触发前已有的最大 run id；只认比它新的运行，避免把上一次的旧结果当成这次的
+
+
 def trigger():
+    global BASE_ID
+    runs = api("GET", "/repos/%s/%s/actions/workflows/%s/runs?per_page=10" % (OWNER, REPO, WF_NAME))
+    items = runs.get("workflow_runs", [])
+    BASE_ID = max([r["id"] for r in items], default=0)
+    print("基线 run id =", BASE_ID, flush=True)
     r = api("POST", "/repos/%s/%s/actions/workflows/%s/dispatches" % (OWNER, REPO, WF_NAME), {"ref": "main"})
     if r.get("_error"):
         print("触发失败：", r["_error"], r.get("_body"), flush=True)
@@ -75,8 +83,8 @@ def wait(timeout_min=30):
     deadline = time.time() + timeout_min * 60
     last = None
     while time.time() < deadline:
-        runs = api("GET", "/repos/%s/%s/actions/workflows/%s/runs?per_page=5&branch=main" % (OWNER, REPO, WF_NAME))
-        items = runs.get("workflow_runs", [])
+        runs = api("GET", "/repos/%s/%s/actions/workflows/%s/runs?per_page=10&branch=main" % (OWNER, REPO, WF_NAME))
+        items = [r for r in runs.get("workflow_runs", []) if r["id"] > BASE_ID]
         if items:
             r = items[0]
             cur = (r["status"], r["conclusion"])
