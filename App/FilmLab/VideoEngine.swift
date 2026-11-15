@@ -14,6 +14,7 @@ import CoreVideo
 import CoreTransferable
 import Metal
 import MetalKit
+import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
