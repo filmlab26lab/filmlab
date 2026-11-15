@@ -37,6 +37,11 @@ struct FilmUniforms {
     var contrast: Float = 0
     var glow: Float = 0.10
     var vignette: Float = 0.18
+    // 相纸（打印阶段）四个量，顺序与着色器一致
+    var paperWarmth: Float = 0
+    var paperContrast: Float = 0
+    var paperWhite: Float = 0
+    var paperBlack: Float = 0
 
     /// 从界面参数生成 uniform；裁剪是归一化到源图的窗口
     static func make(params: FilmParams, crop: CGRect, useTexture: Bool,
@@ -62,6 +67,10 @@ struct FilmUniforms {
         u.contrast = Float(params.contrast)
         u.glow = Float(params.glow)
         u.vignette = Float(params.vignette)
+        u.paperWarmth = Float(params.paperWarmth)
+        u.paperContrast = Float(params.paperContrast)
+        u.paperWhite = Float(params.paperWhite)
+        u.paperBlack = Float(params.paperBlack)
         return u
     }
 }
