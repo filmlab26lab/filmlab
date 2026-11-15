@@ -9,6 +9,7 @@ import SwiftUI
 struct SettingsView: View {
 
     @AppStorage(FLKey.defaultPreset) private var defaultPresetRaw: String = FilmPreset.neutral.rawValue
+    @AppStorage(FLKey.defaultStock) private var defaultStockID: String = "portra400"
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -18,6 +19,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
+                        stockCard
                         presetCard
                         engineCard
                         toolsCard
@@ -39,6 +41,60 @@ struct SettingsView: View {
             }
         }
         .tint(FL.ochre)
+    }
+
+    // MARK: 默认底片
+
+    private var stockCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("新建项目的默认底片").flSectionLabel()
+                Spacer(minLength: 0)
+                Text(currentStockName)
+                    .font(FL.monoFont)
+                    .foregroundStyle(FL.ochre)
+            }
+
+            VStack(spacing: 2) {
+                ForEach(FilmStock.all) { stock in
+                    Button {
+                        defaultStockID = stock.id
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stock.displayName)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(FL.ink)
+                                Text(stock.note)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(FL.inkSoft)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 6)
+                            Image(systemName: defaultStockID == stock.id
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(defaultStockID == stock.id ? FL.ochre : FL.inkSoft)
+                        }
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Text("底片型号是风格参考（按各型号的公开印象拟合），与厂商无关联。")
+                .font(.system(size: 11))
+                .foregroundStyle(FL.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .filmCard(padding: 16)
+    }
+
+    private var currentStockName: String {
+        FilmStock.all.first { $0.id == defaultStockID }?.displayName ?? "中性 原片"
     }
 
     // MARK: 默认预设
